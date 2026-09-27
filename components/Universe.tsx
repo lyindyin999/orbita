@@ -2,7 +2,7 @@
 
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Line, OrbitControls, Stars } from "@react-three/drei";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { PlanetData, planets, scenePosition } from "@/data/planets";
 
@@ -302,6 +302,79 @@ const atmosphereColors: Record<string, string> = {
   Neptune: "#4b7ee8",
 };
 
+
+const planetTextureUrls: Partial<Record<string, string>> = {
+  Venus:
+    "https://assets.science.nasa.gov/dynamicimage/assets/science/cds/3d/resources/image/venus/preview.webp?w=2048",
+  Earth:
+    "https://assets.science.nasa.gov/dynamicimage/assets/science/cds/3d/resources/image/earth-a/preview.webp?w=2048",
+  Mars:
+    "https://assets.science.nasa.gov/dynamicimage/assets/science/cds/3d/resources/image/mars/preview.webp?w=2048",
+  Jupiter:
+    "https://assets.science.nasa.gov/dynamicimage/assets/science/cds/3d/resources/image/jupiter/preview.webp?w=2048",
+  Saturn:
+    "https://assets.science.nasa.gov/dynamicimage/assets/science/cds/3d/resources/image/saturn/preview.webp?w=2048",
+  Neptune:
+    "https://assets.science.nasa.gov/dynamicimage/assets/science/cds/3d/resources/image/neptune/preview.webp?w=2048",
+};
+
+const axialTiltDeg: Record<string, number> = {
+  Mercury: 0.03,
+  Venus: 177.4,
+  Earth: 23.44,
+  Mars: 25.19,
+  Jupiter: 3.13,
+  Saturn: 26.73,
+  Uranus: 97.77,
+  Neptune: 28.32,
+};
+
+const flatteningY: Record<string, number> = {
+  Mercury: 1,
+  Venus: 1,
+  Earth: 0.9966,
+  Mars: 0.994,
+  Jupiter: 0.935,
+  Saturn: 0.902,
+  Uranus: 0.977,
+  Neptune: 0.983,
+};
+
+function createRingTexture() {
+  const size = 1024;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = 32;
+  const ctx = canvas.getContext("2d")!;
+  const image = ctx.createImageData(size, 32);
+
+  for (let x = 0; x < size; x += 1) {
+    const t = x / (size - 1);
+    const fine = Math.sin(t * Math.PI * 210) * 0.5 + 0.5;
+    const broad = Math.sin(t * Math.PI * 19 + 0.6) * 0.5 + 0.5;
+    const cassini = Math.exp(-Math.pow((t - 0.58) / 0.018, 2));
+    const alpha = Math.max(
+      0.035,
+      Math.min(0.92, 0.18 + fine * 0.28 + broad * 0.34 - cassini * 0.82)
+    );
+    const warmth = 188 + broad * 36;
+
+    for (let y = 0; y < 32; y += 1) {
+      const i = (y * size + x) * 4;
+      image.data[i] = warmth + 18;
+      image.data[i + 1] = warmth + 7;
+      image.data[i + 2] = warmth - 18;
+      image.data[i + 3] = Math.round(alpha * 255);
+    }
+  }
+
+  ctx.putImageData(image, 0, 0);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  return texture;
+}
+
 function Planet({
   planet,
   onSelect,
@@ -317,14 +390,54 @@ function Planet({
     () => (planet.name === "Earth" ? createCloudTexture() : null),
     [planet.name]
   );
+  const ringTexture = useMemo(
+    () => (planet.name === "Saturn" ? createRingTexture() : null),
+    [planet.name]
+  );
+  const [photoMap, setPhotoMap] = useState<THREE.Texture | null>(null);
+
+  useEffect(() => {
+    const url = planetTextureUrls[planet.name];
+    if (!url) return;
+
+    const loader = new THREE.TextureLoader();
+    loader.setCrossOrigin("anonymous");
+    let alive = true;
+
+    loader.load(
+      url,
+      (texture) => {
+        if (!alive) {
+          texture.dispose();
+          return;
+        }
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.wrapS = THREE.RepeatWrapping;
+        texture.wrapT = THREE.ClampToEdgeWrapping;
+        texture.anisotropy = 8;
+        texture.needsUpdate = true;
+        setPhotoMap(texture);
+      },
+      undefined,
+      () => {
+        setPhotoMap(null);
+      }
+    );
+
+    return () => {
+      alive = false;
+    };
+  }, [planet.name]);
 
   useEffect(() => {
     return () => {
       maps.color.dispose();
       maps.bump.dispose();
       cloudTexture?.dispose();
+      ringTexture?.dispose();
+      photoMap?.dispose();
     };
-  }, [maps, cloudTexture]);
+  }, [maps, cloudTexture, ringTexture, photoMap]);
 
   useFrame((_, delta) => {
     if (ref.current) {
@@ -343,9 +456,13 @@ function Planet({
       ? 0.008
       : 0.028;
 
+  const tilt = THREE.MathUtils.degToRad(axialTiltDeg[planet.name] ?? 0);
+  const yScale = flatteningY[planet.name] ?? 1;
+
   return (
-    <group position={position}>
+    <group position={position} rotation={[0, 0, tilt]}>
       <mesh
+        scale={[1, yScale, 1]}
         ref={ref}
         castShadow
         receiveShadow
@@ -362,18 +479,39 @@ function Planet({
       >
         <sphereGeometry args={[planet.sceneRadius, 96, 96]} />
         <meshPhysicalMaterial
-          map={maps.color}
-          bumpMap={maps.bump}
-          bumpScale={bumpScale}
-          roughness={planet.name === "Earth" ? 0.66 : 0.8}
+          map={photoMap ?? maps.color}
+          bumpMap={
+            planet.name === "Mercury" ||
+            planet.name === "Venus" ||
+            planet.name === "Mars"
+              ? maps.bump
+              : undefined
+          }
+          bumpScale={
+            planet.name === "Mercury" ||
+            planet.name === "Venus" ||
+            planet.name === "Mars"
+              ? bumpScale
+              : 0
+          }
+          roughness={
+            planet.name === "Earth"
+              ? 0.56
+              : planet.name === "Jupiter" ||
+                  planet.name === "Saturn" ||
+                  planet.name === "Uranus" ||
+                  planet.name === "Neptune"
+                ? 0.9
+                : 0.82
+          }
           metalness={0}
-          clearcoat={planet.name === "Earth" ? 0.12 : 0.02}
-          clearcoatRoughness={0.82}
+          clearcoat={planet.name === "Earth" ? 0.16 : 0}
+          clearcoatRoughness={0.72}
         />
       </mesh>
 
       {cloudTexture && (
-        <mesh ref={cloudsRef} scale={1.018}>
+        <mesh ref={cloudsRef} scale={[1.018, 1.018 * yScale, 1.018]}>
           <sphereGeometry args={[planet.sceneRadius, 96, 96]} />
           <meshStandardMaterial
             map={cloudTexture}
@@ -387,7 +525,7 @@ function Planet({
 
       {atmosphereColors[planet.name] && (
         <>
-          <mesh scale={1.045}>
+          <mesh scale={[1.045, 1.045 * yScale, 1.045]}>
             <sphereGeometry args={[planet.sceneRadius, 72, 72]} />
             <meshBasicMaterial
               color={atmosphereColors[planet.name]}
@@ -397,7 +535,7 @@ function Planet({
               depthWrite={false}
             />
           </mesh>
-          <mesh scale={1.085}>
+          <mesh scale={[1.085, 1.085 * yScale, 1.085]}>
             <sphereGeometry args={[planet.sceneRadius, 64, 64]} />
             <meshBasicMaterial
               color={atmosphereColors[planet.name]}
@@ -411,29 +549,21 @@ function Planet({
       )}
 
       {planet.ring && (
-        <>
-          <mesh rotation={[-Math.PI / 2.15, 0, 0.12]}>
-            <ringGeometry args={[planet.ring.inner, planet.ring.outer, 160]} />
-            <meshStandardMaterial
-              color={planet.ring.color}
-              transparent
-              opacity={0.38}
-              side={THREE.DoubleSide}
-              roughness={0.9}
-              depthWrite={false}
-            />
-          </mesh>
-          <mesh rotation={[-Math.PI / 2.15, 0, 0.12]}>
-            <ringGeometry args={[planet.ring.inner * 1.08, planet.ring.outer * 0.93, 160]} />
-            <meshBasicMaterial
-              color="#9f8d68"
-              transparent
-              opacity={0.14}
-              side={THREE.DoubleSide}
-              depthWrite={false}
-            />
-          </mesh>
-        </>
+        <mesh rotation={[-Math.PI / 2, 0, 0]}>
+          <ringGeometry args={[planet.ring.inner, planet.ring.outer, 256]} />
+          <meshStandardMaterial
+            map={ringTexture ?? undefined}
+            alphaMap={ringTexture ?? undefined}
+            color={planet.ring.color}
+            transparent
+            opacity={0.78}
+            alphaTest={0.035}
+            side={THREE.DoubleSide}
+            roughness={0.92}
+            metalness={0}
+            depthWrite={false}
+          />
+        </mesh>
       )}
     </group>
   );
