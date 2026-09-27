@@ -254,40 +254,256 @@ function OrbitRing({ radius }: { radius: number }) {
   );
 }
 
-function Sun() {
-  const glowRef = useRef<THREE.Mesh>(null);
+function createSunTexture() {
+  const width = 1024;
+  const height = 512;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d")!;
+  const image = ctx.createImageData(width, height);
+  const seed = 145927;
 
-  useFrame(({ clock }) => {
-    if (!glowRef.current) return;
-    const pulse = 1 + Math.sin(clock.elapsedTime * 1.1) * 0.014;
-    glowRef.current.scale.setScalar(pulse);
+  const spots = [
+    { u: 0.18, v: 0.42, rx: 0.025, ry: 0.018, strength: 0.75 },
+    { u: 0.23, v: 0.46, rx: 0.015, ry: 0.012, strength: 0.5 },
+    { u: 0.56, v: 0.62, rx: 0.03, ry: 0.02, strength: 0.8 },
+    { u: 0.71, v: 0.35, rx: 0.02, ry: 0.014, strength: 0.58 },
+    { u: 0.84, v: 0.54, rx: 0.016, ry: 0.012, strength: 0.45 },
+  ];
+
+  for (let y = 0; y < height; y += 1) {
+    const v = y / (height - 1);
+    for (let x = 0; x < width; x += 1) {
+      const u = x / (width - 1);
+
+      const broad = fbm(u * 8.0, v * 6.0, seed);
+      const medium = fbm(u * 24.0 + 3.7, v * 18.0 + 1.4, seed + 81);
+      const fine = fbm(u * 74.0 + 9.1, v * 52.0 + 4.8, seed + 197);
+
+      const convection =
+        0.42 * broad +
+        0.36 * medium +
+        0.22 * fine;
+
+      const filaments =
+        0.5 +
+        0.5 *
+          Math.sin(
+            u * Math.PI * 64 +
+              v * Math.PI * 21 +
+              broad * 9 +
+              medium * 5
+          );
+
+      let spotMask = 0;
+      for (const spot of spots) {
+        let du = Math.abs(u - spot.u);
+        du = Math.min(du, 1 - du);
+        const dv = v - spot.v;
+        const d =
+          (du * du) / (spot.rx * spot.rx) +
+          (dv * dv) / (spot.ry * spot.ry);
+        if (d < 1) {
+          spotMask = Math.max(
+            spotMask,
+            (1 - smoothstep(d)) * spot.strength
+          );
+        }
+      }
+
+      const limbBand = Math.abs(v - 0.5) * 2;
+      const equatorialBoost = 1 - limbBand * 0.06;
+
+      let r =
+        225 +
+        convection * 38 +
+        filaments * 14;
+      let g =
+        112 +
+        convection * 78 +
+        filaments * 20;
+      let b =
+        24 +
+        convection * 34 +
+        filaments * 7;
+
+      const active =
+        Math.max(0, broad - 0.64) *
+        Math.max(0, medium - 0.56) *
+        5.5;
+
+      r += active * 80;
+      g += active * 54;
+      b += active * 18;
+
+      r *= equatorialBoost;
+      g *= equatorialBoost;
+      b *= equatorialBoost;
+
+      r *= 1 - spotMask * 0.72;
+      g *= 1 - spotMask * 0.78;
+      b *= 1 - spotMask * 0.84;
+
+      const i = (y * width + x) * 4;
+      image.data[i] = Math.max(0, Math.min(255, r));
+      image.data[i + 1] = Math.max(0, Math.min(255, g));
+      image.data[i + 2] = Math.max(0, Math.min(255, b));
+      image.data[i + 3] = 255;
+    }
+  }
+
+  ctx.putImageData(image, 0, 0);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.anisotropy = 8;
+  return texture;
+}
+
+function createSunActivityTexture() {
+  const width = 1024;
+  const height = 512;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d")!;
+  const image = ctx.createImageData(width, height);
+  const seed = 532871;
+
+  for (let y = 0; y < height; y += 1) {
+    const v = y / (height - 1);
+    for (let x = 0; x < width; x += 1) {
+      const u = x / (width - 1);
+      const n = fbm(u * 17.0, v * 12.0, seed);
+      const f = fbm(u * 55.0 + 5, v * 38.0 + 2, seed + 113);
+      const loops =
+        0.5 +
+        0.5 *
+          Math.sin(
+            u * Math.PI * 48 +
+              v * Math.PI * 16 +
+              n * 10
+          );
+
+      const alpha = Math.max(
+        0,
+        (n - 0.58) * 2.4 +
+          (f - 0.55) * 1.2 +
+          (loops - 0.75) * 0.7
+      );
+
+      const i = (y * width + x) * 4;
+      image.data[i] = 255;
+      image.data[i + 1] = 192;
+      image.data[i + 2] = 78;
+      image.data[i + 3] = Math.round(
+        Math.min(1, alpha) * 115
+      );
+    }
+  }
+
+  ctx.putImageData(image, 0, 0);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.anisotropy = 8;
+  return texture;
+}
+
+function Sun() {
+  const surfaceRef = useRef<THREE.Mesh>(null);
+  const activityRef = useRef<THREE.Mesh>(null);
+  const coronaRef = useRef<THREE.Mesh>(null);
+
+  const sunTexture = useMemo(() => createSunTexture(), []);
+  const activityTexture = useMemo(
+    () => createSunActivityTexture(),
+    []
+  );
+
+  useEffect(() => {
+    return () => {
+      sunTexture.dispose();
+      activityTexture.dispose();
+    };
+  }, [sunTexture, activityTexture]);
+
+  useFrame(({ clock }, delta) => {
+    if (surfaceRef.current) {
+      surfaceRef.current.rotation.y += delta * 0.018;
+    }
+    if (activityRef.current) {
+      activityRef.current.rotation.y += delta * 0.012;
+      activityRef.current.rotation.x =
+        Math.sin(clock.elapsedTime * 0.08) * 0.012;
+    }
+    if (coronaRef.current) {
+      const pulse =
+        1 +
+        Math.sin(clock.elapsedTime * 1.15) * 0.012 +
+        Math.sin(clock.elapsedTime * 0.41) * 0.006;
+      coronaRef.current.scale.setScalar(pulse);
+    }
   });
 
   return (
-    <group>
-      <mesh ref={glowRef}>
-        <sphereGeometry args={[2.45, 96, 96]} />
-        <meshBasicMaterial color="#fff0b8" />
-      </mesh>
-      <mesh scale={1.1}>
-        <sphereGeometry args={[2.45, 64, 64]} />
+    <group rotation={[0, 0, THREE.MathUtils.degToRad(7.25)]}>
+      <mesh ref={surfaceRef}>
+        <sphereGeometry args={[2.45, 128, 128]} />
         <meshBasicMaterial
-          color="#ffad47"
-          transparent
-          opacity={0.12}
-          side={THREE.BackSide}
+          map={sunTexture}
+          color="#fff0b0"
+          toneMapped={false}
         />
       </mesh>
-      <mesh scale={1.32}>
-        <sphereGeometry args={[2.45, 48, 48]} />
+
+      <mesh ref={activityRef} scale={1.008}>
+        <sphereGeometry args={[2.45, 128, 128]} />
         <meshBasicMaterial
-          color="#ff842e"
+          map={activityTexture}
+          transparent
+          opacity={0.85}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+          toneMapped={false}
+        />
+      </mesh>
+
+      <mesh ref={coronaRef} scale={1.105}>
+        <sphereGeometry args={[2.45, 72, 72]} />
+        <meshBasicMaterial
+          color="#ffae45"
+          transparent
+          opacity={0.115}
+          side={THREE.BackSide}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+          toneMapped={false}
+        />
+      </mesh>
+
+      <mesh scale={1.34}>
+        <sphereGeometry args={[2.45, 56, 56]} />
+        <meshBasicMaterial
+          color="#ff6e22"
           transparent
           opacity={0.035}
           side={THREE.BackSide}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+          toneMapped={false}
         />
       </mesh>
-      <pointLight color="#fff0c5" intensity={1900} distance={115} decay={1.62} />
+
+      <pointLight
+        color="#fff0c5"
+        intensity={2050}
+        distance={120}
+        decay={1.6}
+      />
     </group>
   );
 }
