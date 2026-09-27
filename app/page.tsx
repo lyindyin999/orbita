@@ -70,7 +70,7 @@ export default function Home() {
               type="button"
               onClick={() => setConstellationMode((value) => !value)}
             >
-              Constellations
+              Constellations · 15
             </button>
           </div>
         </div>
@@ -138,21 +138,6 @@ export default function Home() {
             </>
           )}
         </aside>
-
-        <div className="bottom-hud">
-          <div className="controls">
-            <div className="control-pill">WASD · MOVE</div>
-            <div className="control-pill">Q / E · DOWN / UP</div>
-            <div className="control-pill">SHIFT · BOOST</div>
-            <div className="control-pill">DRAG · LOOK</div>
-            <div className="control-pill">SCROLL · ZOOM</div>
-          </div>
-
-          <div className="scale-note">
-            Cinematic visualization. Distances and body sizes are not rendered
-            to a single physical scale.
-          </div>
-        </div>
 
         <nav className="planet-strip" aria-label="Planet quick navigation">
           {planets.map((planet) => (
