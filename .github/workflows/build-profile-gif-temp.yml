@@ -7,10 +7,11 @@ on:
       - ".github/workflows/build-profile-gif-temp.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -21,14 +22,11 @@ jobs:
 
       - name: Download source GIF
         run: |
-          curl -L --fail --retry 3 \
-            "https://media.giphy.com/media/xUPGcvCuJDFgKcNkbe/giphy.gif" \
-            -o /tmp/source.gif
-          file /tmp/source.gif
-          ls -lh /tmp/source.gif
+          curl -L --fail --retry 3             "https://media.giphy.com/media/xUPGcvCuJDFgKcNkbe/giphy.gif"             -o /tmp/source.gif
 
       - name: Remove pause and force infinite loop
         run: |
+          mkdir -p assets/profile
           python - <<'PY'
           from PIL import Image, ImageChops
           from statistics import median
@@ -43,27 +41,23 @@ jobs:
               frames.append(src.convert("RGBA").copy())
               durations.append(int(src.info.get("duration", 40) or 40))
 
-          original = list(durations)
           positive = [d for d in durations if d > 0]
           base = int(median(positive)) if positive else 40
-          cap = max(40, min(80, int(base * 1.5)))
 
-          # Keep the original rhythm, but remove abnormally long holds.
-          durations = [max(20, min(d, cap)) for d in durations]
+          # Source has a 2000ms hold. Normalize the animation to its native
+          # 100ms rhythm so the loop restarts immediately.
+          durations = [base for _ in durations]
 
-          # Strip duplicate freeze frames at the end.
-          removed = 0
           while len(frames) > 2:
               a = frames[-1].convert("RGB")
               b = frames[-2].convert("RGB")
               if ImageChops.difference(a, b).getbbox() is None:
                   frames.pop()
                   durations.pop()
-                  removed += 1
               else:
                   break
 
-          out = Path("redbull_loop_nopause.gif")
+          out = Path("assets/profile/redbull_loop_nopause.gif")
           frames[0].save(
               out,
               save_all=True,
@@ -74,18 +68,19 @@ jobs:
               optimize=True,
           )
 
-          print("source frames:", src.n_frames)
-          print("output frames:", len(frames))
-          print("removed duplicate tail frames:", removed)
-          print("source duration range:", min(original), max(original))
-          print("median duration:", base)
-          print("output duration range:", min(durations), max(durations))
-          print("output bytes:", out.stat().st_size)
+          print("frames:", len(frames))
+          print("duration per frame:", base, "ms")
+          print("loop: infinite")
           PY
 
-      - name: Upload result
-        uses: actions/upload-artifact@v4
-        with:
-          name: seamless-profile-gif
-          path: redbull_loop_nopause.gif
-          if-no-files-found: error
+      - name: Commit seamless GIF
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add assets/profile/redbull_loop_nopause.gif
+          if git diff --cached --quiet; then
+            echo "No asset changes"
+          else
+            git commit -m "asset: add seamless profile GIF"
+            git push
+          fi
