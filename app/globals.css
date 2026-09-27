@@ -279,42 +279,6 @@ button:focus-visible {
   line-height: 1.5;
 }
 
-.bottom-hud {
-  position: absolute;
-  left: 28px;
-  right: 28px;
-  bottom: 24px;
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  gap: 18px;
-}
-
-.controls {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.control-pill {
-  border: 1px solid rgba(255,255,255,.1);
-  border-radius: 999px;
-  padding: 7px 10px;
-  background: rgba(4,6,10,.38);
-  color: rgba(255,255,255,.43);
-  font-size: 10px;
-  letter-spacing: .05em;
-  backdrop-filter: blur(12px);
-}
-
-.scale-note {
-  max-width: 270px;
-  text-align: right;
-  color: rgba(255,255,255,.28);
-  font-size: 10px;
-  line-height: 1.5;
-}
-
 .planet-strip {
   pointer-events: auto;
   position: absolute;
@@ -324,7 +288,7 @@ button:focus-visible {
   display: flex;
   gap: 5px;
   padding: 5px;
-  max-width: calc(100vw - 360px);
+  max-width: calc(100vw - 80px);
   overflow-x: auto;
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -378,16 +342,6 @@ button:focus-visible {
     transform: translateY(24px);
   }
 
-  .bottom-hud {
-    left: 16px;
-    right: 16px;
-    bottom: 16px;
-  }
-
-  .controls,
-  .scale-note {
-    display: none;
-  }
 
   .planet-strip {
     left: 16px;
