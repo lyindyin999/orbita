@@ -1,0 +1,91 @@
+name: Build seamless profile GIF temp
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/build-profile-gif-temp.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Pillow
+        run: python -m pip install --disable-pip-version-check pillow
+
+      - name: Download source GIF
+        run: |
+          curl -L --fail --retry 3 \
+            "https://media.giphy.com/media/xUPGcvCuJDFgKcNkbe/giphy.gif" \
+            -o /tmp/source.gif
+          file /tmp/source.gif
+          ls -lh /tmp/source.gif
+
+      - name: Remove pause and force infinite loop
+        run: |
+          python - <<'PY'
+          from PIL import Image, ImageChops
+          from statistics import median
+          from pathlib import Path
+
+          src = Image.open("/tmp/source.gif")
+          frames = []
+          durations = []
+
+          for i in range(src.n_frames):
+              src.seek(i)
+              frames.append(src.convert("RGBA").copy())
+              durations.append(int(src.info.get("duration", 40) or 40))
+
+          original = list(durations)
+          positive = [d for d in durations if d > 0]
+          base = int(median(positive)) if positive else 40
+          cap = max(40, min(80, int(base * 1.5)))
+
+          # Keep the original rhythm, but remove abnormally long holds.
+          durations = [max(20, min(d, cap)) for d in durations]
+
+          # Strip duplicate freeze frames at the end.
+          removed = 0
+          while len(frames) > 2:
+              a = frames[-1].convert("RGB")
+              b = frames[-2].convert("RGB")
+              if ImageChops.difference(a, b).getbbox() is None:
+                  frames.pop()
+                  durations.pop()
+                  removed += 1
+              else:
+                  break
+
+          out = Path("redbull_loop_nopause.gif")
+          frames[0].save(
+              out,
+              save_all=True,
+              append_images=frames[1:],
+              duration=durations,
+              loop=0,
+              disposal=2,
+              optimize=True,
+          )
+
+          print("source frames:", src.n_frames)
+          print("output frames:", len(frames))
+          print("removed duplicate tail frames:", removed)
+          print("source duration range:", min(original), max(original))
+          print("median duration:", base)
+          print("output duration range:", min(durations), max(durations))
+          print("output bytes:", out.stat().st_size)
+          PY
+
+      - name: Upload result
+        uses: actions/upload-artifact@v4
+        with:
+          name: seamless-profile-gif
+          path: redbull_loop_nopause.gif
+          if-no-files-found: error
